@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.25.1"
+__generated_with = "0.24.2"
 app = marimo.App(width="medium")
 
 
@@ -55,8 +55,14 @@ def _(ca):
     u = ca.SX.sym("u")
 
     def vector_field(s, u):
-        theta_dot = ...  # TODO: angle derivative.
-        omega_dot = ...  # TODO: angular acceleration.
+        # since s = [theta, omega]
+        # since ds = [theta_dot, omega_dot]
+        # from the equations above we have theta_dot = omega and omega_dot = sin(theta) + u
+        theta = s[0]
+        omega = s[1]
+        theta_dot = omega  # TODO: angle derivative.
+        # theta_dot = ...  # TODO: angle derivative.
+        omega_dot = ca.sin(theta) + u  # TODO: angular acceleration.
         return ca.vertcat(theta_dot, omega_dot)
 
     return s, u, vector_field
@@ -85,7 +91,7 @@ def _(f, np):
     print("Return type:", type(rate), "shape:", rate.shape)
     print("As a NumPy array:", np.asarray(rate))
     rate
-    return probe_input, probe_state, rate
+    return probe_input, probe_state
 
 
 @app.cell(hide_code=True)
@@ -120,10 +126,10 @@ def _(ca, vector_field):
         for _ in range(substeps):
             # The input is held constant throughout all four slope evaluations.
             k1 = f(x, u)
-            k2 = ...  # TODO: slope at the first midpoint estimate.
-            k3 = ...  # TODO: slope at the second midpoint estimate.
-            k4 = ...  # TODO: slope at the endpoint estimate.
-            x = ...  # TODO: weighted RK4 update.
+            k2 = f(x + h * k1, u)  # TODO: slope at the first midpoint estimate.
+            k3 = f(x + h * k2 / 2, u)  # TODO: slope at the second midpoint estimate.
+            k4 = f(x + h * k3, u)  # TODO: slope at the endpoint estimate.
+            x = x + h * (k1 + 2 * k2 + 2 * k3 + k4) / 6  # TODO: weighted RK4 update.
         return x
 
     return (rk4,)
@@ -136,7 +142,7 @@ def _(ca, rk4, s, u):
     discrete_dynamics = rk4(s, u, dt, substeps)
     F = ca.Function("F", [s, u], [discrete_dynamics])
     F
-    return F, discrete_dynamics, dt, substeps
+    return F, discrete_dynamics, dt
 
 
 @app.cell
@@ -145,7 +151,7 @@ def _(F, np, probe_input, probe_state):
     print("Initial state:", probe_state)
     print("State after one interval:", next_state)
     next_state
-    return (next_state,)
+    return
 
 
 @app.cell(hide_code=True)
@@ -167,8 +173,10 @@ def _(mo):
 @app.cell
 def _(ca):
     def jacobians(s, u, expression):
-        A = ...  # TODO: ca.jacobian with respect to the state.
-        B = ...  # TODO: ca.jacobian with respect to the input.
+        A = ca.jacobian(expression, s)  # TODO: ca.jacobian with respect to the state.
+        # A = ...  # TODO: ca.jacobian with respect to the state.
+        B = ca.jacobian(expression, u)  # TODO: ca.jacobian with respect to the input.
+        # B = ...  # TODO: ca.jacobian with respect to the input.
         return ca.Function("A", [s, u], [A]), ca.Function("B", [s, u], [B])
 
     return (jacobians,)
@@ -241,7 +249,7 @@ def _(Ac0, Ad, Bc0, Bd, dt, np):
     print("Bd at the equilibrium:\n", Bd0)
     print("First-order approximation I + dt*Ac:\n", np.eye(2) + dt * Ac0)
     print("First-order approximation dt*Bc:\n", dt * Bc0)
-    return Ad0, Bd0
+    return
 
 
 @app.cell(hide_code=True)
@@ -258,13 +266,14 @@ def _(mo):
 
 
 @app.cell
-def _(np):
+def _(F, np):
     def simulate(transition, initial_state, inputs):
         states = np.empty((len(inputs) + 1, 2))
         states[0] = initial_state
         for k, action in enumerate(inputs):
             # Numerical CasADi outputs are DM matrices; store a flat NumPy state.
-            next_state = ...  # TODO: evaluate the transition at states[k], action.
+            next_state = F(states[k], action)  # TODO: evaluate the transition at states[k], action.
+            # next_state = ...  # TODO: evaluate the transition at states[k], action.
             states[k + 1] = np.asarray(next_state).ravel()
         return states
 
