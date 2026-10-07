@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.25.1"
+__generated_with = "0.24.2"
 app = marimo.App(width="medium")
 
 
@@ -55,11 +55,11 @@ def _(mo):
 def _(ca):
     z = ca.SX.sym("z", 2)
     x, y = z[0], z[1]
-    f = ...  # TODO: scalar objective expression.
-    g = ...  # TODO: scalar equality-constraint expression.
+    f = 0.5 * (x-1)**2 + 50 * (y-x**2)**2+0.5*x**2  # TODO: scalar objective expression.
+    g = x+(1-y)**2  # TODO: scalar equality-constraint expression.
     print("Objective expression:", f)
     print("Constraint expression:", g)
-    return f, g, x, y, z
+    return f, g, z
 
 
 @app.cell(hide_code=True)
@@ -72,8 +72,11 @@ def _(mo):
 
 @app.cell
 def _(ca, f, g, z):
-    objective = ...  # TODO: Function with input z and output f.
-    constraint = ...  # TODO: Function with input z and output g.
+    # F = ca.Function("F", [s, u], [discrete_dynamics])
+    objective = ca.Function(
+        "f", [z], [f]
+    )  # TODO: Function with input z and output f.
+    constraint = ca.Function("g",[z],[g])  # TODO: Function with input z and output g.
     print(objective)
     print(constraint)
     return constraint, objective
@@ -105,15 +108,17 @@ def _(mo):
 
 
 @app.cell
-def _(ca, f, g, z):
-    grad_f = ...  # TODO: gradient of f with respect to z.
-    grad_g = ...  # TODO: gradient of g with respect to z.
-    hess_f = ...  # TODO: Hessian of f; ca.hessian returns (Hessian, gradient).
-    hess_g = ...  # TODO: Hessian of g.
+def _(ca, f, g, objective, z):
+    print(f"{objective=}")
+    print(f"{z=}")
+    grad_f = ca.gradient(f, z)  # TODO: gradient of f with respect to z.
+    grad_g = ca.gradient(g, z)  # TODO: gradient of g with respect to z.
+    hess_f, _ = ca.hessian(f, z)  # TODO: Hessian of f; ca.hessian returns (Hessian, gradient).
+    hess_g, _ = ca.hessian(g, z)  # TODO: Hessian of g.
     derivatives = ca.Function("derivatives", [z], [grad_f, grad_g, hess_f, hess_g],
                               ["z"], ["grad_f", "grad_g", "hess_f", "hess_g"])
     derivatives
-    return derivatives, grad_f, grad_g, hess_f, hess_g
+    return (derivatives,)
 
 
 @app.cell(hide_code=True)
@@ -130,7 +135,7 @@ def _(derivatives, initial_guess):
     derivative_values = derivatives(z=initial_guess)
     for _name, _value in derivative_values.items():
         print(f"{_name}:\n{_value}")
-    return (derivative_values,)
+    return
 
 
 @app.cell(hide_code=True)
@@ -142,12 +147,17 @@ def _(mo):
     return
 
 
-@app.cell
-def _(ca, f, g, z):
+app._unparsable_cell(
+    r"""
     nlp = {"x": z, "f": f, "g": g}
-    solver = ...  # TODO: create an IPOPT solver for nlp.
+
+    ca.nplsol
+
+    solver = ca.nlp ...  # TODO: create an IPOPT solver for nlp.
     solver
-    return nlp, solver
+    """,
+    name="_"
+)
 
 
 @app.cell
@@ -205,13 +215,13 @@ def _(mo):
 
 
 @app.cell
-def _(ca, f, g, z):
+def _(ca, g, z):
     lam = ca.SX.sym("lam")
     stationarity = ...  # TODO: gradient of the Lagrangian f + lam*g.
     kkt = ca.Function("kkt", [z, lam], [g, stationarity],
                       ["z", "lam"], ["feasibility", "stationarity"])
     kkt
-    return kkt, lam, stationarity
+    return (kkt,)
 
 
 @app.cell(hide_code=True)
@@ -227,7 +237,7 @@ def _(kkt, lambda_star, z_star):
     residuals = kkt(z=z_star, lam=lambda_star)
     print("Feasibility residual:", residuals["feasibility"])
     print("Stationarity residual:\n", residuals["stationarity"])
-    return (residuals,)
+    return
 
 
 @app.cell
@@ -298,14 +308,14 @@ def _(ca, pendulum_step):
     F = ca.Function("F", [pendulum_state, pendulum_input],
                     [pendulum_step(pendulum_state, pendulum_input, dt)])
     F
-    return F, dt, pendulum_input, pendulum_state
+    return F, dt
 
 
 @app.cell
 def _(F, np):
     step_probe = F([-np.pi + 0.1, 0], 0)
     print("State after one interval:", step_probe)
-    return (step_probe,)
+    return
 
 
 @app.cell(hide_code=True)
@@ -325,7 +335,7 @@ def _(ca):
     U = ocp_variables.variable(1, N)
     print("Variable types:", type(X), type(U))
     print("State shape:", X.shape, "input shape:", U.shape)
-    return N, Q, U, X, ocp_variables
+    return N, U, X, ocp_variables
 
 
 @app.cell(hide_code=True)
@@ -337,14 +347,14 @@ def _(mo):
 
 
 @app.cell
-def _(U, X, ca, np, ocp_variables):
+def _(U, X, np, ocp_variables):
     ocp_bounds = ocp_variables.copy()
     initial_state = ...  # TODO: use a CasADi DM for (-pi, 0).
     ocp_bounds.subject_to(X[:, 0] == initial_state)
     ocp_bounds.subject_to(ocp_bounds.bounded(-1, U, 1))
     ocp_bounds.subject_to(ocp_bounds.bounded(-np.pi, X[0, :], 2 * np.pi))
     print("Constraint-vector shape:", ocp_bounds.g.shape)
-    return initial_state, ocp_bounds
+    return (ocp_bounds,)
 
 
 @app.cell(hide_code=True)
@@ -377,7 +387,7 @@ def _(mo):
 
 
 @app.cell
-def _(N, Q, U, X, ca, dt, ocp_dynamics):
+def _(N, ocp_dynamics):
     ocp = ocp_dynamics.copy()
     cost = 0
     for _k in range(N):
@@ -386,7 +396,7 @@ def _(N, Q, U, X, ca, dt, ocp_dynamics):
     terminal_cost = ...  # TODO: endpoint penalty, without a dt factor.
     ocp.minimize(cost + terminal_cost)
     print("Objective type:", type(ocp.f), "shape:", ocp.f.shape)
-    return cost, ocp, terminal_cost
+    return (ocp,)
 
 
 @app.cell(hide_code=True)
@@ -447,7 +457,7 @@ def _(U, X, ca, control_solution, np, shooting_gaps):
     print("State trajectory:", states.shape, "input trajectory:", actions.shape)
     print("Maximum shooting gap:", np.max(np.abs(gap_values)))
     states[:5]
-    return actions, gap_values, states
+    return actions, states
 
 
 @app.cell(hide_code=True)
@@ -465,7 +475,7 @@ def _(F, actions, np, states):
     for _k, _action in enumerate(actions):
         simulated_states[_k + 1] = np.asarray(F(simulated_states[_k], _action)).ravel()
     print("Maximum state difference:", np.max(np.abs(simulated_states - states)))
-    return (simulated_states,)
+    return
 
 
 @app.cell

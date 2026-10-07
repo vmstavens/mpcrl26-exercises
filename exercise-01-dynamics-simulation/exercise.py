@@ -54,15 +54,11 @@ def _(ca):
     s = ca.SX.sym("s", 2)
     u = ca.SX.sym("u")
 
-    def vector_field(s, u):
-        # since s = [theta, omega]
-        # since ds = [theta_dot, omega_dot]
-        # from the equations above we have theta_dot = omega and omega_dot = sin(theta) + u
+    def vector_field(s, u, b=0.0):
         theta = s[0]
         omega = s[1]
-        theta_dot = omega  # TODO: angle derivative.
-        # theta_dot = ...  # TODO: angle derivative.
-        omega_dot = ca.sin(theta) + u  # TODO: angular acceleration.
+        theta_dot = omega
+        omega_dot = ca.sin(theta) + u - b * omega
         return ca.vertcat(theta_dot, omega_dot)
 
     return s, u, vector_field
@@ -118,31 +114,30 @@ def _(mo):
 
 
 @app.cell
-def _(ca, vector_field):
-    def rk4(s, u, dt, substeps=5):
-        f = ca.Function("f", [s, u], [vector_field(s, u)])
+def _():
+    def rk4(dynamics, s, u, dt, substeps=5):
         h = dt / substeps
         x = s
         for _ in range(substeps):
             # The input is held constant throughout all four slope evaluations.
-            k1 = f(x, u)
-            k2 = f(x + h * k1, u)  # TODO: slope at the first midpoint estimate.
-            k3 = f(x + h * k2 / 2, u)  # TODO: slope at the second midpoint estimate.
-            k4 = f(x + h * k3, u)  # TODO: slope at the endpoint estimate.
-            x = x + h * (k1 + 2 * k2 + 2 * k3 + k4) / 6  # TODO: weighted RK4 update.
+            k1 = dynamics(x, u)
+            k2 = dynamics(x + h * k1 / 2, u)
+            k3 = dynamics(x + h * k2 / 2, u)
+            k4 = dynamics(x + h * k3, u)
+            x = x + h * (k1 + 2 * k2 + 2 * k3 + k4) / 6
         return x
 
     return (rk4,)
 
 
 @app.cell
-def _(ca, rk4, s, u):
+def _(ca, f, rk4, s, u):
     dt = 0.1
     substeps = 5
-    discrete_dynamics = rk4(s, u, dt, substeps)
+    discrete_dynamics = rk4(f, s, u, dt, substeps)
     F = ca.Function("F", [s, u], [discrete_dynamics])
     F
-    return F, discrete_dynamics, dt
+    return F, discrete_dynamics, dt, substeps
 
 
 @app.cell
@@ -173,6 +168,8 @@ def _(mo):
 @app.cell
 def _(ca):
     def jacobians(s, u, expression):
+        print(f"{expression=}")
+        print(f"{s=}")
         A = ca.jacobian(expression, s)  # TODO: ca.jacobian with respect to the state.
         # A = ...  # TODO: ca.jacobian with respect to the state.
         B = ca.jacobian(expression, u)  # TODO: ca.jacobian with respect to the input.
@@ -266,14 +263,13 @@ def _(mo):
 
 
 @app.cell
-def _(F, np):
+def _(np):
     def simulate(transition, initial_state, inputs):
         states = np.empty((len(inputs) + 1, 2))
         states[0] = initial_state
         for k, action in enumerate(inputs):
             # Numerical CasADi outputs are DM matrices; store a flat NumPy state.
-            next_state = F(states[k], action)  # TODO: evaluate the transition at states[k], action.
-            # next_state = ...  # TODO: evaluate the transition at states[k], action.
+            next_state = transition(states[k], action)
             states[k + 1] = np.asarray(next_state).ravel()
         return states
 
@@ -290,22 +286,38 @@ def _(mo):
 @app.cell
 def _(F, dt, mo, np, run, simulate):
     mo.stop(not run.value)
-    states = simulate(F, [np.pi / 2, 0], np.zeros(200))
+    initial_state = np.array([np.pi / 2, 0])
+    inputs = np.zeros(200)
+    states = simulate(F, initial_state, inputs)
     time = np.arange(len(states)) * dt
     print("Trajectory shape:", states.shape)
     states[:5]
-    return states, time
+    return initial_state, inputs, states, time
 
 
 @app.cell
-def _(plt, states, time):
-    fig, axes = plt.subplots(2, 1, sharex=True, figsize=(8, 5))
-    axes[0].plot(time, states[:, 0]); axes[0].set_ylabel("Angle")
-    axes[1].plot(time, states[:, 1]); axes[1].set_ylabel("Angular velocity")
-    axes[1].set_xlabel("Time")
-    fig.tight_layout()
+def _(plt):
+    def plot_trajectories(time, trajectories):
+        fig, axes = plt.subplots(2, 1, sharex=True, figsize=(8, 5))
+        for label, trajectory in trajectories.items():
+            axes[0].plot(time, trajectory[:, 0], label=label)
+            axes[1].plot(time, trajectory[:, 1], label=label)
+        axes[0].set_ylabel("Angle")
+        axes[1].set_ylabel("Angular velocity")
+        axes[1].set_xlabel("Time")
+        axes[0].legend()
+        axes[1].legend()
+        fig.tight_layout()
+        return fig
+
+    return (plot_trajectories,)
+
+
+@app.cell
+def _(plot_trajectories, states, time):
+    fig = plot_trajectories(time, {"No friction": states})
     fig
-    return
+    return (fig,)
 
 
 @app.cell(hide_code=True)
@@ -315,10 +327,42 @@ def _(mo):
     Modify the model to account for friction in the pendulum hinge.
     **Hint:** model viscous friction by adding $-b\omega$ to the angular
     acceleration, for example with $b=0.1$.
-    Run the simulation again and compare it with the first result.
+    Press **Simulate** above to run both models and compare them below.
     What has changed?
     """)
     return
+
+
+@app.cell
+def _(ca, s, u, vector_field):
+    b = 0.1
+    f_fric = ca.Function("f_fric", [s, u], [vector_field(s, u, b=b)])
+    return b, f_fric
+
+
+@app.cell
+def _(ca, dt, f_fric, rk4, s, substeps, u):
+    discrete_dynamics_fric = rk4(f_fric, s, u, dt, substeps)
+    F_fric = ca.Function("F_fric", [s, u], [discrete_dynamics_fric])
+    return (F_fric,)
+
+
+@app.cell
+def _(F_fric, initial_state, inputs, mo, run, simulate):
+    mo.stop(not run.value)
+    states_fric = simulate(F_fric, initial_state, inputs)
+    print("Friction trajectory shape:", states_fric.shape)
+    states_fric[:5]
+    return (states_fric,)
+
+
+@app.cell
+def _(b, plot_trajectories, states, states_fric, time):
+    fig_fric = plot_trajectories(
+        time, {"No friction": states, f"Friction (b={b})": states_fric}
+    )
+    fig_fric
+    return (fig_fric,)
 
 
 if __name__ == "__main__":
