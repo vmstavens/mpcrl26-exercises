@@ -147,17 +147,15 @@ def _(mo):
     return
 
 
-app._unparsable_cell(
-    r"""
+@app.cell
+def _(ca, f, g, z):
     nlp = {"x": z, "f": f, "g": g}
 
-    ca.nplsol
+    solver = ca.nlpsol("solver","ipopt", nlp)
 
-    solver = ca.nlp ...  # TODO: create an IPOPT solver for nlp.
+    # solver = ca.nlp ...  # TODO: create an IPOPT solver for nlp.
     solver
-    """,
-    name="_"
-)
+    return (solver,)
 
 
 @app.cell

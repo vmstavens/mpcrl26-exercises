@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.25.1"
+__generated_with = "0.24.2"
 app = marimo.App(width="medium")
 
 
@@ -55,7 +55,10 @@ def _(mo):
 
 @app.cell
 def _(ca, np):
-    def transition(states, actions, dt=0.1):
+    def transition(states, actions, dt=0.1) -> np.ndarray:
+        """
+        s_t+1 = step(st, at)
+        """
         # The last axis holds (theta, omega); leading axes may hold a whole grid.
         x = np.asarray(states, dtype=float).copy()
         actions = np.broadcast_to(actions, x.shape[:-1])
@@ -120,9 +123,10 @@ def _(mo):
 
 @app.cell
 def _(np, solve_discrete_are):
-    def lqr_gain(A, B, Q, R):
-        X = ...  # TODO: solution of the DARE with solve_discrete_are.
-        K = ...  # TODO: gain for mu(s) = -K s; use np.linalg.solve instead of an explicit inverse.
+    def lqr_gain(A: np.ndarray, B: np.ndarray, Q: np.ndarray, R: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        X = solve_discrete_are(A, B, Q, R)  # TODO: solution of the DARE with solve_discrete_are.
+        K = np.linalg.inv(R + B.T @ X @ B ) @ B.T @ X @ A  # TODO: gain for mu(s) = -K s; use np.linalg.solve instead of an explicit inverse.
+        # K = ...  # TODO: gain for mu(s) = -K s; use np.linalg.solve instead of an explicit inverse.
         return K, X
 
     return (lqr_gain,)
@@ -244,13 +248,25 @@ def _(mo):
 
 
 @app.cell
-def _(interpolate_future, np):
-    def value_iteration(grids, states, actions, next_states, Q, R, gamma, tolerance=1e-2):
-        stage = ...  # TODO: stage costs l(s, u) with shape (101, 51, 21): s^T Q s per state plus R u^2 per action.
+def _(Q, R, actions, grids, interpolate_future, next_states, np, states):
+    def value_iteration(grids, states: np.ndarray, actions: np.ndarray, next_states: np.ndarray, Q: np.ndarray, R: np.ndarray, gamma: float, tolerance:float=1e-2):
+        print(f"{states.shape=}")
+        print(f"{states.T.shape=}")
+        print(f"{actions.shape=}")
+        print(f"{next_states.shape=}")
+        print(f"{next_states.shape=}")
+        print(f"{Q.shape=}")
+        print(f"{R=}")
+        print(states.shape, Q.shape, states.T.shape)
+        # print(states * Q * states.T)
+        state_cost = np.sum((states @ Q) * states, axis=-1)
+        stage = state_cost[..., None] + R * actions**2
+        # stage = states.T @ Q @ states + R @ actions**2  # TODO: stage costs l(s, u) with shape (101, 51, 21): s^T Q s per state plus R u^2 per action.
         V = np.zeros(states.shape[:-1])
         for iteration in range(1, 10_000):
             future = interpolate_future(grids, V, next_states)
-            costs = ...  # TODO: l(s, u) + gamma V(f(s, u)) for every state and action.
+            costs = stage + gamma * V  # TODO: l(s, u) + gamma V(f(s, u)) for every state and action.
+            # costs = ...  # TODO: l(s, u) + gamma V(f(s, u)) for every state and action. OBS: Not the cost, the expected future cost
             V_new = ...  # TODO: minimize over the action axis.
             delta = ...  # TODO: largest change max_s |V_new(s) - V(s)|.
             V = V_new
@@ -260,7 +276,10 @@ def _(interpolate_future, np):
         costs = stage + gamma * interpolate_future(grids, V, next_states)
         policy = actions[costs.argmin(axis=-1)]
         return V, policy, iteration
-
+    _gamma = 0.99
+    _V, _policy, _iterations = value_iteration(
+        grids, states, actions, next_states, Q, R.item(), _gamma
+    )
     return (value_iteration,)
 
 
@@ -347,7 +366,20 @@ def _(mo):
 
 
 @app.cell
-def _(K, Q, R, V, actions, gamma, grids, interpolate_future, mo, np, plt, transition):
+def _(
+    K,
+    Q,
+    R,
+    V,
+    actions,
+    gamma,
+    grids,
+    interpolate_future,
+    mo,
+    np,
+    plt,
+    transition,
+):
     def vi_policy(state):
         # Greedy action at the exact state: evaluate l(s, u) + gamma V(f(s, u)) for all actions.
         successors = transition(np.broadcast_to(state, (len(actions), 2)), actions)

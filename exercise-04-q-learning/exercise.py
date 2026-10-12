@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.25.1"
+__generated_with = "0.24.2"
 app = marimo.App(width="medium")
 
 
@@ -134,11 +134,17 @@ def _(mo):
     return
 
 
-@app.function
-def select_action(Q, state, epsilon, rng):
-    if rng.random() < epsilon:
-        return ...  # TODO: random action with rng.integers.
-    return ...
+@app.cell
+def select_action(np):
+    import random
+    def select_action(Q: np.ndarray, state, epsilon, rng):
+        # print(Q.shape)
+        # print(np.argmax(Q[state]))
+        if rng.random() < epsilon:
+            return random.randint(0,3)  # TODO: random action with rng.integers.
+        return np.argmax(Q[state])
+        # return ...
+    return (select_action,)
 
 
 @app.cell(hide_code=True)
@@ -151,7 +157,7 @@ def _(mo):
 
 
 @app.cell
-def _(np):
+def _(np, select_action):
     _Q = np.zeros((48, 4))
     _Q[36] = [-1.0, 0.0, -2.0, -3.0]
     _rng = np.random.default_rng(0)
@@ -176,11 +182,15 @@ def _(mo):
     return
 
 
-@app.function
-def update(Q, state, action, reward, next_state, terminated, alpha, gamma):
-    # Only termination stops bootstrapping, not truncation.
-    target = ...  # TODO: TD target.
-    Q[state, action] += alpha * (target - Q[state, action])
+@app.cell
+def update(np):
+    def update(Q, state, action, reward, next_state, terminated, alpha, gamma):
+        # Only termination stops bootstrapping, not truncation.
+        # print(state, action, reward, next_state)
+        target = reward + (1-terminated)*gamma * np.max(Q[next_state])  # TODO: TD target.
+        Q[state, action] += alpha * (target - Q[state, action])
+
+    return (update,)
 
 
 @app.cell(hide_code=True)
@@ -193,7 +203,7 @@ def _(mo):
 
 
 @app.cell
-def _(np):
+def _(np, update):
     _Q = np.zeros((48, 4))
     _Q[24] = [-4.0, -2.0, -6.0, -8.0]
     update(_Q, state=36, action=0, reward=-1.0, next_state=24, terminated=False, alpha=0.5, gamma=1.0)
@@ -260,7 +270,7 @@ def _(mo):
 
 
 @app.cell
-def _(epsilon, plot_training, train):
+def _(epsilon, plot_training, select_action, train, update):
     Q, rewards, lengths = train(select_action, update, epsilon=epsilon.value)
     print("Mean training return of the last 20 episodes:", rewards[-20:].mean())
     print("Estimated start value max_a Q(36, a):", Q[36].max())
